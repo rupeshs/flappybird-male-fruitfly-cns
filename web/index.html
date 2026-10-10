@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlyBrain · live connectome</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230a1024' stroke='%235cf2ff' stroke-width='2'/%3E%3Ccircle cx='11' cy='19' r='3' fill='%235cf2ff'/%3E%3Ccircle cx='21' cy='12' r='3' fill='%23ffb84d'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #05070d;
+    --panel: rgba(14, 18, 32, .66);
+    --panel-solid: #0e1220;
+    --line: rgba(255, 255, 255, .08);
+    --line-strong: rgba(255, 255, 255, .16);
+    --text: #e9edf7;
+    --muted: #8892ab;
+    --faint: #5b647c;
+    --cyan: #5cf2ff;
+    --amber: #ffb84d;
+    --violet: #a78bfa;
+    --green: #4ade80;
+    --red: #ff6b7d;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(900px 500px at 8% -10%, rgba(92, 120, 255, .10), transparent 60%),
+      radial-gradient(800px 500px at 100% 110%, rgba(167, 139, 250, .08), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.45 var(--sans);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 420px;
+    gap: 16px;
+    height: 100vh;
+    padding: 16px;
+  }
+
+  /* ---------- stage (brain) ---------- */
+  .stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    border: 1px solid var(--line);
+    background:
+      radial-gradient(900px 560px at 45% 48%, #111c3d 0%, #0a1024 45%, #060812 100%);
+    box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .8), inset 0 1px 0 rgba(255, 255, 255, .04);
+  }
+  .stage canvas.layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #gl { cursor: grab; touch-action: none; }
+  #gl.drag { cursor: grabbing; }
+  #hud { pointer-events: none; }
+
+  .glass {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+
+  .topbar {
+    position: absolute; left: 22px; right: 22px; top: 20px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+    pointer-events: none;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand svg { flex: none; filter: drop-shadow(0 0 12px rgba(92, 242, 255, .45)); }
+  .brand h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+  .brand p { margin: 1px 0 0; font-size: 12px; color: var(--muted); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;
+    padding: 5px 11px 5px 9px; border-radius: 999px; font: 500 11px var(--mono);
+    letter-spacing: .04em; color: var(--muted);
+    background: rgba(255, 255, 255, .04); border: 1px solid var(--line);
+  }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .pill.live { color: #b8f7d0; }
+  .pill.live i { background: var(--green); box-shadow: 0 0 0 0 rgba(74, 222, 128, .6); animation: ping 1.8s infinite; }
+  .pill.warn i { background: var(--amber); }
+  @keyframes ping { 70% { box-shadow: 0 0 0 7px rgba(74, 222, 128, 0); } 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); } }
+
+  .kpis { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .kpi { min-width: 108px; padding: 10px 14px 11px; }
+  .kpi .l { font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .kpi .v { margin-top: 3px; font: 600 24px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .kpi .s { margin-top: 2px; font-size: 11px; color: var(--faint); }
+  .kpi.score .v { background: linear-gradient(120deg, #fff, var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  .hint {
+    position: absolute; left: 24px; bottom: 166px; font: 500 11px var(--mono); color: var(--faint);
+    letter-spacing: .02em; pointer-events: none;
+  }
+
+  .strip {
+    position: absolute; left: 20px; right: 20px; bottom: 20px; height: 132px;
+    display: grid; grid-template-columns: 150px minmax(0, 1fr) 170px minmax(0, 1fr); gap: 4px; padding: 14px 16px 12px 18px;
+  }
+  .strip .meta + .plot + .meta { border-left: 1px solid var(--line); padding-left: 16px; margin-left: 12px; }
+  .strip .legend { margin-top: 6px; }
+  .strip .meta { display: flex; flex-direction: column; justify-content: space-between; }
+  .strip h2, .card h2 {
+    margin: 0; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .strip .big { font: 600 34px/1 var(--mono); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .strip .big small { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .strip .sub { font-size: 11px; color: var(--faint); }
+  .strip .plot { position: relative; min-width: 0; }
+  .strip .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #loading, #nogl {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    background: rgba(5, 7, 13, .72); z-index: 5; font: 500 13px var(--mono); color: var(--muted);
+    letter-spacing: .04em; transition: opacity .5s;
+  }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #nogl { display: none; }
+  #nogl.show { display: grid; }
+  .spinner { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--cyan); margin: 0 auto 14px; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- sidebar ---------- */
+  .side { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  .side::-webkit-scrollbar { display: none; }
+  .card { padding: 13px 16px 14px; flex: none; }
+  .tag { font: 500 10px var(--mono); letter-spacing: .06em; padding: 3px 8px; border-radius: 999px; color: var(--text); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); text-transform: none; }
+
+  .loop-body { display: flex; gap: 14px; margin-top: 12px; }
+  .gamewrap { position: relative; width: 168px; flex: none; aspect-ratio: 288 / 512; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-strong); box-shadow: 0 10px 30px -10px rgba(0, 0, 0, .7); }
+  .gamewrap canvas { width: 100%; height: 100%; display: block; }
+  .crash {
+    position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 4px;
+    background: radial-gradient(circle, rgba(255, 60, 90, .28), rgba(5, 7, 13, .78));
+    opacity: 0; transition: opacity .25s; pointer-events: none;
+  }
+  .crash.show { opacity: 1; }
+  .crash b { font: 700 15px var(--mono); letter-spacing: .18em; color: #ffd0d6; }
+  .crash span { font: 500 11px var(--mono); color: #ff9aa8; }
+
+  .chain { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
+  .node {
+    position: relative; padding: 9px 11px 10px; border-radius: 12px;
+    background: rgba(255, 255, 255, .035); border: 1px solid var(--line);
+    transition: border-color .25s, background .25s, box-shadow .25s;
+  }
+  .node .k { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font: 500 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .node .k em { font-style: normal; color: var(--faint); letter-spacing: .04em; text-transform: none; }
+  .node .val { margin-top: 4px; font: 600 19px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .node .sub { margin-top: 2px; font-size: 10.5px; color: var(--faint); }
+  .link { align-self: center; width: 2px; height: 9px; background: linear-gradient(var(--line-strong), transparent); border-radius: 2px; }
+
+  .node.in { --glow: 0; border-color: rgba(92, 242, 255, calc(.12 + .5 * var(--glow))); box-shadow: 0 0 calc(26px * var(--glow)) -6px rgba(92, 242, 255, calc(.8 * var(--glow))), inset 0 0 calc(24px * var(--glow)) -12px rgba(92, 242, 255, calc(.8 * var(--glow))); }
+  .node.in .val { color: var(--cyan); }
+  .meter { position: relative; height: 5px; margin-top: 7px; border-radius: 4px; background: rgba(255, 255, 255, .07); overflow: visible; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; border-radius: 4px; background: linear-gradient(90deg, #2fa8c2, var(--cyan)); transform-origin: left; transform: scaleX(0); transition: transform .08s linear; }
+  .meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 2px; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+  .node.brain.on { border-color: rgba(167, 139, 250, .5); }
+  .node.brain .val { color: #cbbdff; }
+
+  .node.out.on { border-color: rgba(255, 184, 77, .8); background: rgba(255, 184, 77, .09); box-shadow: 0 0 30px -6px rgba(255, 184, 77, .8), inset 0 0 22px -10px rgba(255, 184, 77, .8); }
+  .node.out .val { color: var(--amber); }
+  .meter.dn { margin-top: 6px; }
+  .meter.dn i { background: linear-gradient(90deg, #7a5a2a, var(--amber)); }
+  .node.out.on .meter.dn i { box-shadow: 0 0 10px var(--amber); }
+  .node.out .val.quiet { color: var(--muted); }
+  .dots { display: flex; gap: 6px; margin-top: 6px; }
+  .dots .ago { margin-left: auto; font: 500 10px var(--mono); color: var(--faint); }
+  .dots span { display: inline-flex; align-items: center; gap: 5px; font: 500 10px var(--mono); color: var(--faint); }
+  .dots span i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, .12); transition: background .15s, box-shadow .15s; }
+  .dots span.on { color: var(--amber); }
+  .dots span.on i { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+
+  .chip { display: inline-block; margin-top: 4px; padding: 3px 10px; border-radius: 8px; font: 700 14px var(--mono); letter-spacing: .1em; color: var(--muted); background: rgba(255, 255, 255, .05); border: 1px solid var(--line); transition: all .18s; }
+  .node.act.flap .chip { color: #2a1700; background: linear-gradient(180deg, #ffd27a, var(--amber)); border-color: transparent; box-shadow: 0 0 24px -2px rgba(255, 184, 77, .9); }
+  .node.act.held .chip { color: var(--red); background: rgba(255, 107, 125, .1); border-color: rgba(255, 107, 125, .35); }
+
+  .legend { display: flex; gap: 12px; font: 500 10px var(--mono); color: var(--faint); letter-spacing: .02em; text-transform: none; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #trace { width: 100%; height: 84px; display: block; margin-top: 8px; }
+
+  .regions { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .regions li { display: grid; grid-template-columns: 10px 1fr auto; gap: 3px 9px; align-items: center; }
+  .regions .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+  .regions .nm { font-size: 12.5px; }
+  .regions .val { font: 500 11.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .regions .bar { grid-column: 2 / 4; height: 5px; border-radius: 4px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+  .regions .bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 45%, transparent), var(--c)); transform-origin: left; transform: scaleX(0); box-shadow: 0 0 12px var(--c); }
+  .foot { margin: 10px 0 0; font-size: 10.5px; color: var(--faint); }
+
+  @media (max-width: 1000px) {
+    body { overflow: auto; }
+    .app { grid-template-columns: 1fr; height: auto; }
+    .stage { height: 78vh; min-height: 560px; }
+    .kpi { min-width: 92px; }
+  }
+  @media (max-width: 640px) {
+    .app { padding: 10px; gap: 10px; }
+    .topbar { flex-direction: column; }
+    .kpis { justify-content: flex-start; }
+    .kpi .v { font-size: 19px; }
+    .strip { grid-template-columns: 110px 1fr; grid-template-rows: 1fr 1fr; height: 250px; }
+    .strip .meta + .plot + .meta { border-left: 0; padding-left: 0; margin-left: 0; }
+    .hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .pill.live i, .spinner { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="stage" id="stage">
+    <canvas id="gl" class="layer" aria-label="3D map of the fly central nervous system with firing neurons"></canvas>
+    <canvas id="hud" class="layer"></canvas>
+
+    <header class="topbar">
+      <div>
+        <div class="brand">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+            <defs><linearGradient id="lg" x1="0" y1="0" x2="34" y2="34"><stop stop-color="#5cf2ff"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+            <circle cx="17" cy="17" r="15.5" stroke="url(#lg)" stroke-opacity=".5"/>
+            <path d="M8 21l6-8 5 5 7-9" stroke="url(#lg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="8" cy="21" r="2.2" fill="#5cf2ff"/><circle cx="14" cy="13" r="2.2" fill="#8ec5ff"/>
+            <circle cx="19" cy="18" r="2.2" fill="#a78bfa"/><circle cx="26" cy="9" r="2.2" fill="#ffb84d"/>
+          </svg>
+          <div>
+            <h1>FlyBrain</h1>
+            <p id="subtitle">Male fruit-fly CNS · leaky integrate-and-fire</p>
+          </div>
+        </div>
+        <div class="pill" id="conn"><i></i><span>Connecting…</span></div>
+      </div>
+      <div class="kpis">
+        <div class="glass kpi score"><div class="l">Score</div><div class="v" id="kScore">–</div><div class="s" id="kBest">best –</div></div>
+        <div class="glass kpi"><div class="l">Episode</div><div class="v" id="kEp">–</div><div class="s" id="kFrame">frame –</div></div>
+        <div class="glass kpi"><div class="l">Firing</div><div class="v" id="kFire">–</div><div class="s" id="kFirePct">of all neurons</div></div>
+        <div class="glass kpi"><div class="l">Brain step</div><div class="v" id="kMs">–</div><div class="s" id="kMsSub">per game frame</div></div>
+      </div>
+    </header>
+
+    <div class="hint">drag to rotate · scroll to zoom · double-click to reset · lines = synapses onto DNp01 (cyan: loom cells · grey / red: other excitatory / inhibitory inputs), not axon paths</div>
+
+    <section class="glass strip">
+      <div class="meta">
+        <h2>Neurons firing</h2>
+        <div><div class="big" id="actNow">–<small>%</small></div><div class="sub" id="actSub">of neurons firing / frame</div></div>
+        <div class="sub">last 20 s</div>
+      </div>
+      <div class="plot"><canvas id="activity"></canvas></div>
+      <div class="meta" title="Leaky integrate-and-fire, in model units (not mV): a spike when v reaches 1, then reset to 0. Background drive holds v near rest; random noise kicks cause the spontaneous spikes.">
+        <div>
+          <h2>DNp01 potential</h2>
+          <span class="legend"><span><i style="background:var(--amber)"></i>left</span><span><i style="background:var(--violet)"></i>right</span></span>
+        </div>
+        <div class="sub">LIF · model units, not mV<br>spike at 1.0, reset to 0</div>
+        <div class="sub">last 10 s</div>
+      </div>
+      <div class="plot"><canvas id="vtrace"></canvas></div>
+    </section>
+
+    <div id="loading"><div><div class="spinner"></div>Loading connectome layout…</div></div>
+    <div id="nogl"><div>WebGL2 is not available in this browser,<br>so the 3D neuron view cannot be drawn.</div></div>
+  </main>
+
+  <aside class="side">
+    <section class="glass card">
+      <h2>Sensorimotor loop <span class="tag" id="epTag">episode –</span></h2>
+      <div class="loop-body">
+        <div class="gamewrap">
+          <canvas id="game"></canvas>
+          <div class="crash" id="crash"><b>CRASHED</b><span id="crashScore"></span></div>
+        </div>
+        <div class="chain">
+          <div class="node in" id="nLoom">
+            <div class="k">Loom input <em>LC4 · LPLC2</em></div>
+            <div class="val" id="vLoom">0.00</div>
+            <div class="meter"><i id="mLoom"></i><b id="mThresh"></b></div>
+          </div>
+          <div class="link"></div>
+          <div class="node brain" id="nBrain">
+            <div class="k">Connectome</div>
+            <div class="val" id="vFire">–</div>
+            <div class="sub" id="vFirePct">neurons firing</div>
+          </div>
+          <div class="link"></div>
+          <div class="node out" id="nDn">
+            <div class="k">DNp01 <em>giant fiber</em></div>
+            <div class="val" id="vDn">–</div>
+            <div class="meter dn" title="Highest DNp01 membrane potential this frame. It spikes when it reaches 1.0 (the right end)."><i id="mDn"></i></div>
+            <div class="dots"><span id="dnL"><i></i>L</span><span id="dnR"><i></i>R</span><span class="ago" id="dnAgo"></span></div>
+          </div>
+          <div class="link"></div>
+          <div class="node act" id="nAct">
+            <div class="k">Wing motor</div>
+            <div class="chip" id="vAct">GLIDE</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="glass card">
+      <h2>Loom → DNp01
+        <span class="legend"><span><i style="background:var(--cyan)"></i>loom</span><span><i style="background:var(--amber)"></i>spike</span></span>
+      </h2>
+      <canvas id="trace"></canvas>
+      <p class="foot">Dashed = loom level where DNp01 starts to fire. Bright bars are flaps, dim bars are spikes ignored while the bird was rising.</p>
+    </section>
+
+    <section class="glass card">
+      <h2>Firing by region <span class="tag" title="Share of each region's neurons that fired during the last game frame">% per frame</span></h2>
+      <ul class="regions" id="regions"></ul>
+    </section>
+  </aside>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const stage = $("#stage"), glCanvas = $("#gl"), hud = $("#hud"), hctx = hud.getContext("2d");
+const MONO = '500 11px "JetBrains Mono", ui-monospace, Consolas, monospace';
+
+let meta, M, positions, groups;
+let inten;                       // per-neuron flash intensity, decays every animation frame
+let gl, intBuf;
+let W = 0, H = 0, dpr = 1, safeTop = 96;
+let latest = null, dirty = false;
+let maxCross = 0.75;
+let clusters = [], dnCells = [];
+
+const HIST = 600;                // ~20 s at 30 frames/s
+const hist = { loom: [], dn: [], flap: [], fire: [], v: [], spk: [] };   // v, spk: one entry per brain step
+const rings = [];                // expanding rings on DNp01 spikes
+let dnPeak = 0, dnCount = 0;
+let dnLitAt = -1e9, flapAt = -1e9, heldAt = -1e9, msgCount = 0, fps = 0, lastFpsAt = performance.now();
+let lastEpisode = -1;
+
+/* ------------------------------------------------------------------ boot */
+
+async function boot() {
+  try {
+    const [m, p, g] = await Promise.all([
+      fetch("/meta.json").then((r) => r.json()),
+      fetch("/positions.bin").then((r) => r.arrayBuffer()),
+      fetch("/groups.bin").then((r) => r.arrayBuffer()),
+      loadSprites(),
+    ]);
+    meta = m; M = m.m;
+    positions = new Float32Array(p);
+    groups = new Uint8Array(g);
+  } catch (e) {
+    $("#loading").firstElementChild.textContent = "Could not reach the brain server. Is brain.py --web running?";
+    return;
+  }
+  inten = new Float32Array(M + 8);
+  for (let i = 1; i < M * 3; i += 3) maxCross = Math.max(maxCross, Math.abs(positions[i]));
+
+  $("#subtitle").textContent = `Male fruit-fly CNS · ${fmt(meta.n)} neurons (${fmt(meta.m)} with a position drawn) · leaky integrate-and-fire`;
+  $("#mThresh").style.left = `${meta.settings.loom_at_line * 100}%`;
+  buildClusters();
+  buildRegions();
+  buildPaths();
+  if (!initGL()) { $("#nogl").classList.add("show"); $("#loading").classList.add("done"); return; }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+  $("#loading").classList.add("done");
+  connect();
+  requestAnimationFrame(frame);
+}
+
+function buildClusters() {
+  // Loom cells grouped by eye side; DNp01 neurons individually.
+  const bySide = {};
+  meta.loom.forEach((idx, i) => (bySide[meta.loomSide[i]] ||= []).push(idx));
+  clusters = Object.entries(bySide).map(([side, idxs]) => {
+    let x = 0, y = 0, z = 0;
+    for (const i of idxs) { x += positions[i * 3]; y += positions[i * 3 + 1]; z += positions[i * 3 + 2]; }
+    const n = idxs.length;
+    return { side, n, p: [x / n, y / n, z / n] };
+  });
+  dnCells = meta.dn.filter((d) => d.idx >= 0).map((d) => ({ ...d, p: [positions[d.idx * 3], positions[d.idx * 3 + 1], positions[d.idx * 3 + 2]] }));
+}
+
+function buildRegions() {
+  $("#regions").innerHTML = meta.groups.map((g) =>
+    `<li style="--c:${g.color}"><span class="dot"></span><span class="nm">${g.name}</span><span class="val">–</span><div class="bar"><i></i></div></li>`
+  ).join("");
+}
+
+/* ------------------------------------------------------------------ webgl */
+
+// Perspective camera shared by every program and by the HUD's project(): a point at view
+// depth z is scaled by DIST / (DIST + z), so near neurons (negative z) come forward.
+const DIST = 3.2;
+const PROJ = `
+uniform mat3 u_rot; uniform vec2 u_scale; uniform vec2 u_offset; uniform float u_dist;
+float persp(float z) { return u_dist / (u_dist + z); }
+vec4 toClip(vec3 r) { float k = persp(r.z); return vec4(r.x * k * u_scale.x + u_offset.x, r.y * k * u_scale.y + u_offset.y, 0.0, 1.0); }
+float depthOf(vec3 r) { return clamp((r.z + 0.6) / 1.2, 0.0, 1.0); }   // 0 near .. 1 far
+const vec3 FOG = vec3(0.22, 0.30, 0.55);`;
+
+// Neurons.
+const VS = `#version 300 es
+in vec3 a_pos; in float a_grp; in float a_int;
+uniform float u_dpr; uniform float u_pt;
+uniform vec3 u_pal[9]; uniform float u_gain[9];
+${PROJ}
+out vec3 v_col; out float v_a; out float v_soft;
+void main() {
+  vec3 r = u_rot * a_pos;
+  gl_Position = toClip(r);
+  int g = int(a_grp + 0.5);
+  float role = g == 7 ? 1.0 : (g == 8 ? 2.0 : 0.0);
+  float depth = depthOf(r);
+  float soft = smoothstep(0.2, 0.9, abs(r.z));   // out of focus away from the middle plane
+  float k = persp(r.z);
+  float gain = u_gain[g];   // dense regions are dimmed, sparse ones lifted, so the whole CNS stays legible
+  float baseA = role == 0.0 ? 0.085 * gain : (role == 1.0 ? 0.45 : 1.0);
+  float baseS = role == 0.0 ? 1.5 + 0.35 * clamp(gain - 1.0, 0.0, 1.5) : (role == 1.0 ? 2.6 : 6.5);
+  float i = a_int;
+  v_soft = soft;
+  v_a = (baseA + i * i * 0.62) * mix(1.0, 0.4, depth) / (1.0 + soft * 0.8);
+  v_col = mix(mix(u_pal[g], vec3(1.0), i * 0.45), FOG, depth * 0.45 * (1.0 - i));
+  gl_PointSize = (baseS + i * 2.6) * u_dpr * u_pt * k * (1.0 + soft * 0.8);
+}`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 v_col; in float v_a; in float v_soft; out vec4 o;
+void main() {
+  vec2 d = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(d, d);
+  if (r2 > 1.0) discard;
+  float f = exp(-r2 * mix(3.2, 1.6, v_soft)) * v_a;
+  o = vec4(v_col * f, f);
+}`;
+
+// Synapses onto DNp01, as quadratic curves. a_age = seconds since the presynaptic neuron
+// last spiked; a pulse travels from it (a_t = 0) to the giant fiber (a_t = 1).
+const PULSE_TRAVEL = 0.35;
+const LINE_VS = `#version 300 es
+in vec3 a_pos; in float a_t; in float a_kind; in float a_w; in float a_age;
+${PROJ}
+out vec3 v_col; out float v_a;
+void main() {
+  vec3 r = u_rot * a_pos;
+  gl_Position = toClip(r);
+  float depth = depthOf(r);
+  vec3 col = a_kind < 0.5 ? vec3(0.36, 0.95, 1.0) : (a_kind < 1.5 ? vec3(0.78, 0.8, 0.92) : vec3(1.0, 0.42, 0.52));
+  float head = a_age / ${PULSE_TRAVEL.toFixed(2)};
+  float pulse = a_age < ${(PULSE_TRAVEL + 0.15).toFixed(2)} ? exp(-pow((a_t - head) * 7.0, 2.0)) : 0.0;
+  float after = 0.4 * exp(-a_age * 5.0);
+  float base = a_kind < 0.5 ? 0.09 + 0.3 * a_w : 0.035 + 0.12 * a_w;
+  float a = base + (pulse * 0.9 + after * 0.5) * (0.3 + 0.7 * a_w);
+  v_a = a * mix(1.0, 0.45, depth);
+  v_col = mix(col, FOG, depth * 0.35);
+}`;
+const LINE_FS = `#version 300 es
+precision highp float;
+in vec3 v_col; in float v_a; out vec4 o;
+void main() { o = vec4(v_col * v_a, v_a); }`;
+
+function hex(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; }
+
+const progs = {};
+let pointVao, lineVao, lineAgeBuf, lineVerts = 0;
+
+function program(vs, fs) {
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const name = gl.getActiveUniform(p, i).name; u[name.replace("[0]", "")] = gl.getUniformLocation(p, name); }
+  return { p, u };
+}
+
+function attr(prog, name, data, size, usage) {
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, data, usage);
+  const loc = gl.getAttribLocation(prog, name);
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  return buf;
+}
+
+function initGL() {
+  gl = glCanvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: "high-performance" });
+  if (!gl) return false;
+  progs.points = program(VS, FS);
+  progs.lines = program(LINE_VS, LINE_FS);
+
+  const P = progs.points;
+  gl.useProgram(P.p);
+  // Optic lobe, visual projection, central brain, descending, ascending, nerve cord, other, loom, DNp01
+  gl.uniform1fv(P.u.u_gain, new Float32Array([0.6, 1.3, 0.9, 2.4, 2.4, 2.8, 1.5, 1, 1]));
+  const pal = new Float32Array(27);
+  meta.groups.forEach((g, i) => pal.set(hex(g.color), i * 3));
+  pal.set([0.62, 0.97, 1.0], 7 * 3);   // loom input cells
+  pal.set([1.0, 0.72, 0.28], 8 * 3);   // DNp01
+  gl.uniform3fv(P.u.u_pal, pal);
+
+  const role = new Float32Array(M);
+  for (let i = 0; i < M; i++) role[i] = groups[i];
+  for (const i of meta.loom) role[i] = 7;
+  for (const d of meta.dn) if (d.idx >= 0) role[d.idx] = 8;
+
+  pointVao = gl.createVertexArray();
+  gl.bindVertexArray(pointVao);
+  attr(P.p, "a_pos", positions, 3, gl.STATIC_DRAW);
+  attr(P.p, "a_grp", role, 1, gl.STATIC_DRAW);
+  intBuf = attr(P.p, "a_int", new Float32Array(M), 1, gl.DYNAMIC_DRAW);
+
+  lineVao = gl.createVertexArray();
+  gl.bindVertexArray(lineVao);
+  const L = buildPathGeometry();
+  attr(progs.lines.p, "a_pos", L.pos, 3, gl.STATIC_DRAW);
+  attr(progs.lines.p, "a_t", L.t, 1, gl.STATIC_DRAW);
+  attr(progs.lines.p, "a_kind", L.kind, 1, gl.STATIC_DRAW);
+  attr(progs.lines.p, "a_w", L.w, 1, gl.STATIC_DRAW);
+  lineAgeBuf = attr(progs.lines.p, "a_age", L.age, 1, gl.DYNAMIC_DRAW);
+
+  gl.bindVertexArray(null);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  return true;
+}
+
+/* ------------------------------------------------------------------ signal pathway */
+
+const SEG = 20;   // line segments per synapse curve
+let paths = [], pathAge;
+
+function buildPaths() {
+  // meta.paths rows: [presynaptic neuron, DNp01 index, weight, kind (0 loom, 1 other)]
+  const maxW = { 0: 1e-9, 1: 1e-9 };
+  for (const [, , w, kind] of meta.paths) maxW[kind] = Math.max(maxW[kind], Math.abs(w));
+  paths = meta.paths
+    .filter(([, dn]) => meta.dn[dn].idx >= 0)
+    .map(([pre, dn, w, kind]) => ({ pre, to: meta.dn[dn].idx, kind: kind === 0 ? 0 : w >= 0 ? 1 : 2, w: Math.sqrt(Math.abs(w) / maxW[kind]), firedAt: -1e9 }));
+  pathAge = new Float32Array(paths.length * SEG * 2).fill(99);
+}
+
+function buildPathGeometry() {
+  const n = paths.length * SEG * 2;
+  const pos = new Float32Array(n * 3), t = new Float32Array(n), kind = new Float32Array(n), w = new Float32Array(n);
+  const P = (i) => [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]];
+  let v = 0;
+  paths.forEach((e, k) => {
+    const a = P(e.pre), b = P(e.to);
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    // Bow each curve dorsally (layout z is ventral-positive), with a little per-synapse spread.
+    const j = (Math.sin(k * 12.9898) * 43758.5453) % 1;
+    const c = [(a[0] + b[0]) / 2 + j * 0.03, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2 - len * (0.22 + 0.08 * j)];
+    const at = (s) => { const u = 1 - s; return [0, 1, 2].map((d) => u * u * a[d] + 2 * u * s * c[d] + s * s * b[d]); };
+    for (let s = 0; s < SEG; s++) {
+      for (const tt of [s / SEG, (s + 1) / SEG]) {
+        pos.set(at(tt), v * 3); t[v] = tt; kind[v] = e.kind; w[v] = e.w; v++;
+      }
+    }
+  });
+  lineVerts = n;
+  return { pos, t, kind, w, age: pathAge };
+}
+
+function firePaths(bits, now) {
+  for (const e of paths) {
+    const byte = bits.charCodeAt(e.pre >> 3);
+    // Restart a pulse only once the previous one is well on its way, so steady firing still reads as travel.
+    if ((byte >> (7 - (e.pre & 7))) & 1 && now - e.firedAt > PULSE_TRAVEL * 600) e.firedAt = now;
+  }
+}
+
+function updatePathAges(now) {
+  const per = SEG * 2;
+  paths.forEach((e, k) => { const age = Math.min(99, (now - e.firedAt) / 1000); pathAge.fill(age, k * per, (k + 1) * per); });
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineAgeBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, pathAge);
+}
+
+
+/* ------------------------------------------------------------------ view */
+
+const view = { yaw: 0, pitch: 0, zoom: 1, drag: false, touched: -1e9, sway: 1 };
+let R = [1, 0, 0, 0, 1, 0, 0, 0, 1], unit = 300, ox = 0, oy = 0;
+
+function resize() {
+  const r = stage.getBoundingClientRect();
+  W = r.width; H = r.height; dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (const c of [glCanvas, hud]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  safeTop = Math.max(96, $(".topbar").getBoundingClientRect().bottom - r.top + 14);   // taller when the KPIs wrap
+  sizeGame();
+  dirty = true;
+}
+
+function updateView(t) {
+  const active = view.drag || t - view.touched < 3000 || reduceMotion;
+  view.sway += ((active ? 0 : 1) - view.sway) * 0.03;
+  const yaw = view.yaw + Math.sin(t * 0.00028) * 0.32 * view.sway;
+  const pitch = view.pitch + Math.sin(t * 0.00019 + 1.3) * 0.12 * view.sway;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  R = [cy, 0, sy, sp * sy, cp, -sp * cy, -cp * sy, sp, cp * cy];   // Rx(pitch) · Ry(yaw)
+
+  const compact = H < 700;
+  const safe = { l: 26, r: 26, t: safeTop, b: compact ? 168 : 178 };
+  const sw = W - safe.l - safe.r, sh = H - safe.t - safe.b;
+  unit = Math.min(sw / 2 / 1.12, sh / 2 / maxCross / 1.08) * view.zoom;
+  ox = safe.l + sw / 2; oy = safe.t + sh / 2;
+}
+
+const project = (p) => {
+  const x = R[0] * p[0] + R[1] * p[1] + R[2] * p[2];
+  const y = R[3] * p[0] + R[4] * p[1] + R[5] * p[2];
+  const k = DIST / (DIST + R[6] * p[0] + R[7] * p[1] + R[8] * p[2]);
+  return [ox + x * k * unit, oy - y * k * unit];
+};
+
+glCanvas.addEventListener("pointerdown", (e) => { view.drag = true; view.touched = performance.now(); glCanvas.setPointerCapture(e.pointerId); glCanvas.classList.add("drag"); });
+glCanvas.addEventListener("pointermove", (e) => {
+  if (!view.drag) return;
+  view.yaw += e.movementX * 0.006;
+  view.pitch = clamp(view.pitch + e.movementY * 0.006, -1.3, 1.3);
+  view.touched = performance.now();
+});
+const endDrag = () => { view.drag = false; view.touched = performance.now(); glCanvas.classList.remove("drag"); };
+glCanvas.addEventListener("pointerup", endDrag);
+glCanvas.addEventListener("pointercancel", endDrag);
+glCanvas.addEventListener("wheel", (e) => { e.preventDefault(); view.zoom = clamp(view.zoom * Math.exp(-e.deltaY * 0.0012), 0.7, 3.5); view.touched = performance.now(); }, { passive: false });
+glCanvas.addEventListener("dblclick", () => { Object.assign(view, { yaw: 0, pitch: 0, zoom: 1, touched: -1e9 }); });
+
+/* ------------------------------------------------------------------ data */
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onopen = () => setConn("live");
+  es.onerror = () => setConn("warn");
+  es.onmessage = onMessage;
+}
+
+function setConn(state) {
+  const el = $("#conn");
+  el.className = "pill " + state;
+  el.lastElementChild.textContent = state === "live" ? (latest ? `Live · ${fps} fps` : "Connected · waiting for game") : "Reconnecting…";
+}
+
+function onMessage(e) {
+  const m = JSON.parse(e.data);
+  const now = performance.now();
+
+  const bits = atob(m.bits);
+  firePaths(bits, now);
+  for (let b = 0; b < bits.length; b++) {
+    const v = bits.charCodeAt(b);
+    if (!v) continue;
+    const base = b << 3;
+    for (let k = 0; k < 8; k++) if (v & (0x80 >> k)) inten[base + k] = 1;
+  }
+
+  if (m.episode !== lastEpisode) {
+    lastEpisode = m.episode;
+    for (const k in hist) hist[k].length = 0;
+  }
+  const push = (k, v) => { const a = hist[k]; a.push(v); if (a.length > HIST) a.shift(); };
+  push("loom", m.loom); push("dn", m.dn); push("flap", m.flap); push("fire", m.fired / meta.n);
+  (m.dn_v || []).forEach((v, i) => {
+    hist.v.push(v); hist.spk.push(m.dn_spiked[i]);
+    if (hist.v.length > HIST * meta.settings.steps_per_frame) { hist.v.shift(); hist.spk.shift(); }
+  });
+
+  // Closest DNp01 got to threshold this frame. A spiking cell has already been reset to 0, so count it as 1.
+  dnPeak = 0;
+  (m.dn_v || []).forEach((vs, i) => vs.forEach((v, k) => { dnPeak = Math.max(dnPeak, m.dn_spiked[i][k] ? 1 : v); }));
+
+  if (m.dn > 0) {
+    dnLitAt = now; dnCount = m.dn;
+    m.dnFired.forEach((f, i) => { if (f && dnCells[i]) rings.push({ p: dnCells[i].p, t0: now, flap: m.flap }); });
+  }
+  if (m.dn > 0 && m.locked && !m.flap) heldAt = now;
+  if (m.flap) flapAt = now;
+
+  latest = m; dirty = true; msgCount++;
+}
+
+/* ------------------------------------------------------------------ frame loop */
+
+let last = performance.now();
+function frame(t) {
+  requestAnimationFrame(frame);   // first, so one bad frame cannot stop the loop
+  const dt = Math.min(0.1, (t - last) / 1000); last = t;
+
+  const k = Math.exp(-dt / 0.12);
+  for (let i = 0; i < M; i++) { const v = inten[i]; if (v > 0.004) inten[i] = v * k; else if (v) inten[i] = 0; }
+
+  updateView(t);
+  drawBrain(t);
+  drawHud(t);
+  drawGame();
+  if (dirty) { updateDom(); drawTrace(); drawVTrace(); drawActivity(); dirty = false; }
+  litNodes(t);
+
+  if (t - lastFpsAt > 1000) {
+    fps = Math.round(msgCount * 1000 / (t - lastFpsAt)); msgCount = 0; lastFpsAt = t;
+    if ($("#conn").classList.contains("live")) setConn("live");
+  }
+}
+
+function setCamera(prog) {
+  gl.uniformMatrix3fv(prog.u.u_rot, false, [R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]);
+  gl.uniform2f(prog.u.u_scale, 2 * unit / W, 2 * unit / H);
+  gl.uniform2f(prog.u.u_offset, 2 * ox / W - 1, 1 - 2 * oy / H);
+  gl.uniform1f(prog.u.u_dist, DIST);
+}
+
+function drawBrain(t) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, intBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, inten, 0, M);
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  const P = progs.points;
+  gl.useProgram(P.p);
+  setCamera(P);
+  gl.uniform1f(P.u.u_dpr, dpr);
+  gl.uniform1f(P.u.u_pt, Math.sqrt(view.zoom));
+  gl.bindVertexArray(pointVao);
+  gl.drawArrays(gl.POINTS, 0, M);
+
+  if (!lineVerts) return;
+  updatePathAges(t);
+  const Lp = progs.lines;
+  gl.useProgram(Lp.p);
+  setCamera(Lp);
+  gl.bindVertexArray(lineVao);
+  gl.drawArrays(gl.LINES, 0, lineVerts);
+}
+
+/* ------------------------------------------------------------------ hud overlay */
+
+// A small glass chip anchored at (x, y): its left edge, or its right edge when align is "right".
+function label(x, y, title, sub, color, align) {
+  hctx.font = '600 12px "Inter", system-ui, sans-serif';
+  const w1 = hctx.measureText(title).width;
+  hctx.font = MONO;
+  const w = Math.max(w1, hctx.measureText(sub).width) + 22;
+  const x0 = clamp(align === "right" ? x - w : x, 8, Math.max(8, W - w - 8));
+  roundRect(hctx, x0, y - 15, w, 39, 9);
+  hctx.fillStyle = "rgba(7,10,22,.8)"; hctx.fill();
+  hctx.globalAlpha = 0.4; hctx.strokeStyle = color; hctx.lineWidth = 1; hctx.stroke(); hctx.globalAlpha = 1;
+  hctx.textAlign = "left";
+  hctx.font = '600 12px "Inter", system-ui, sans-serif';
+  hctx.fillStyle = color; hctx.fillText(title, x0 + 11, y);
+  hctx.font = MONO;
+  hctx.fillStyle = "rgba(200,208,230,.62)"; hctx.fillText(sub, x0 + 11, y + 15);
+}
+
+function drawHud(t) {
+  hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  hctx.clearRect(0, 0, W, H);
+  const loom = latest ? latest.loom : 0;
+
+  for (const c of clusters) {
+    const [x, y] = project(c.p);
+    const up = y < oy;
+    const lx = x + (x < ox ? -34 : 34), ly = y + (up ? -50 : 56);
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.004);
+    hctx.strokeStyle = `rgba(92,242,255,${0.35 + 0.5 * loom})`;
+    hctx.lineWidth = 1.2;
+    hctx.setLineDash([3, 4]);
+    hctx.beginPath(); hctx.arc(x, y, 24 + 3 * pulse * loom, 0, 6.2832); hctx.stroke();
+    hctx.setLineDash([]);
+    hctx.strokeStyle = "rgba(92,242,255,.35)";
+    hctx.beginPath(); hctx.moveTo(x, y + (up ? -24 : 24)); hctx.lineTo(lx, ly + (up ? 24 : -15)); hctx.stroke();
+    label(lx, ly, "LC4 · LPLC2", `${c.side === "L" ? "left" : c.side === "R" ? "right" : c.side} eye · loom detectors`, "#8ef3ff", lx < x ? "right" : "left");
+  }
+
+  dnCells.forEach((d, i) => {
+    const [x, y] = project(d.p);
+    const lit = latest && latest.dnFired && latest.dnFired[i];
+    const up = y < oy;
+    const lx = x + (x < ox ? -30 : 30), ly = y + (up ? -34 : 42);
+    hctx.strokeStyle = "rgba(255,184,77,.45)"; hctx.lineWidth = 1;
+    hctx.beginPath(); hctx.moveTo(x, y); hctx.lineTo(lx, ly + (up ? 24 : -15)); hctx.stroke();
+    hctx.fillStyle = lit ? "#fff" : "#ffb84d";
+    hctx.shadowColor = "#ffb84d"; hctx.shadowBlur = lit ? 22 : 10;
+    hctx.beginPath(); hctx.arc(x, y, lit ? 5 : 3.6, 0, 6.2832); hctx.fill();
+    hctx.shadowBlur = 0;
+    label(lx, ly, "DNp01", `giant fiber · ${d.side}`, "#ffd08a", lx < x ? "right" : "left");
+  });
+
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i], age = Math.max(0, (t - r.t0) / 800);
+    if (age >= 1) { rings.splice(i, 1); continue; }
+    const [x, y] = project(r.p);
+    hctx.strokeStyle = `rgba(255,${r.flap ? 210 : 150},90,${(1 - age) ** 2 * 0.9})`;
+    hctx.lineWidth = r.flap ? 2.4 : 1.4;
+    hctx.beginPath(); hctx.arc(x, y, 8 + age * (r.flap ? 80 : 46), 0, 6.2832); hctx.stroke();
+  }
+}
+
+/* ------------------------------------------------------------------ dom */
+
+const regionEls = () => [...document.querySelectorAll("#regions li")];
+const shown = [];
+
+function updateDom() {
+  const m = latest;
+  if (!m) return;
+  const s = meta.settings;
+
+  $("#kScore").textContent = m.score;
+  $("#kBest").textContent = `best ${m.best}`;
+  $("#kEp").textContent = "#" + m.episode;
+  $("#kFrame").textContent = `frame ${m.frame}`;
+  $("#kFire").textContent = fmt(m.fired);
+  $("#kFirePct").textContent = `${(100 * m.fired / meta.n).toFixed(1)}% of ${fmt(meta.n)}`;
+  $("#kMs").innerHTML = `${m.brain_ms.toFixed(1)}<span style="font-size:13px;color:var(--muted)"> ms</span>`;
+  $("#kMsSub").textContent = `${s.steps_per_frame} steps · ${Math.round(s.steps_per_frame * meta.dt * 1000)} ms of fly time`;
+  $("#epTag").textContent = `episode ${m.episode}`;
+
+  $("#vLoom").textContent = m.loom.toFixed(2);
+  $("#mLoom").style.transform = `scaleX(${clamp(m.loom, 0, 1)})`;
+  $("#nLoom").style.setProperty("--glow", clamp(m.loom * 1.6, 0, 1).toFixed(2));
+  $("#vFire").textContent = fmt(m.fired);
+  $("#vFirePct").textContent = `${(100 * m.fired / meta.n).toFixed(1)}% of all neurons`;
+  $("#dnL").classList.toggle("on", !!m.dnFired.some((f, i) => f && meta.dn[i].side === "L"));
+  $("#dnR").classList.toggle("on", !!m.dnFired.some((f, i) => f && meta.dn[i].side === "R"));
+
+  $("#crash").classList.toggle("show", !!m.over);
+  $("#crashScore").textContent = m.over ? `score ${m.score}` : "";
+
+  regionEls().forEach((li, i) => {
+    const rate = m.groups[i] / Math.max(1, meta.groups[i].size);
+    li.querySelector(".val").textContent = `${(rate * 100).toFixed(1)}%`;
+    li.querySelector(".bar i").style.transform = `scaleX(${clamp(rate / 0.35, 0, 1)})`;
+  });
+
+  const pct = 100 * m.fired / meta.n;
+  $("#actNow").innerHTML = `${pct.toFixed(1)}<small>%</small>`;
+  $("#actSub").textContent = `${fmt(m.fired)} of ${fmt(meta.n)} neurons`;
+}
+
+function litNodes(t) {
+  // Events last a single 33 ms frame; hold them briefly so they are visible.
+  const flap = t - flapAt < 260, held = !flap && t - heldAt < 260;
+  $("#nAct").classList.toggle("flap", flap);
+  $("#nAct").classList.toggle("held", held);
+  $("#vAct").textContent = flap ? "FLAP" : held ? "HELD" : "GLIDE";
+  $("#nDn").classList.toggle("on", t - dnLitAt < 260);
+
+  // DNp01: hold a spike for half a second; between spikes show how charged it is.
+  const spiking = t - dnLitAt < 500, vDn = $("#vDn");
+  vDn.textContent = spiking ? `${dnCount} spike${dnCount > 1 ? "s" : ""}` : latest ? `v ${dnPeak.toFixed(2)}` : "–";
+  vDn.classList.toggle("quiet", !spiking);
+  $("#mDn").style.transform = `scaleX(${spiking ? 1 : clamp(dnPeak, 0, 1)})`;
+  const ago = (t - dnLitAt) / 1000;
+  $("#dnAgo").textContent = dnLitAt < 0 ? "" : ago < 0.5 ? "now" : ago < 60 ? `${ago.toFixed(1)} s ago` : `${Math.floor(ago / 60)} min ago`;
+  $("#nBrain").classList.toggle("on", !!latest && latest.fired > 0);
+}
+
+/* ------------------------------------------------------------------ charts */
+
+function prep(canvas) {
+  const r = canvas.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const g = canvas.getContext("2d");
+  g.setTransform(d, 0, 0, d, 0, 0);
+  g.clearRect(0, 0, r.width, r.height);
+  return [g, r.width, r.height];
+}
+
+function drawTrace() {
+  const [g, w, h] = prep($("#trace"));
+  const N = 300, laneH = 18, top = 6, plotH = h - laneH - top - 6;
+  const xs = (i, len) => w - (len - 1 - i) * (w / (N - 1));
+  const y = (v) => top + plotH * (1 - clamp(v, 0, 1));
+
+  g.strokeStyle = "rgba(255,255,255,.06)"; g.lineWidth = 1;
+  for (const v of [0, .5, 1]) { g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke(); }
+
+  const th = meta.settings.loom_at_line;
+  g.setLineDash([4, 4]); g.strokeStyle = "rgba(255,184,77,.7)";
+  g.beginPath(); g.moveTo(0, y(th)); g.lineTo(w, y(th)); g.stroke(); g.setLineDash([]);
+  g.font = MONO; g.fillStyle = "rgba(255,184,77,.85)"; g.textAlign = "left"; g.fillText(th.toFixed(2), 2, y(th) - 4);
+
+  const loom = hist.loom.slice(-N), len = loom.length;
+  if (len > 1) {
+    const grad = g.createLinearGradient(0, top, 0, top + plotH);
+    grad.addColorStop(0, "rgba(92,242,255,.38)"); grad.addColorStop(1, "rgba(92,242,255,0)");
+    g.beginPath(); g.moveTo(xs(0, len), y(0));
+    loom.forEach((v, i) => g.lineTo(xs(i, len), y(v)));
+    g.lineTo(xs(len - 1, len), y(0)); g.closePath(); g.fillStyle = grad; g.fill();
+    g.beginPath(); loom.forEach((v, i) => (i ? g.lineTo(xs(i, len), y(v)) : g.moveTo(xs(i, len), y(v))));
+    g.strokeStyle = "#5cf2ff"; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+  }
+
+  const dn = hist.dn.slice(-N), flap = hist.flap.slice(-N), bw = Math.max(2, w / N);
+  const ly = h - laneH + 2;
+  dn.forEach((v, i) => {
+    if (!v) return;
+    const x = xs(i, dn.length) - bw / 2;
+    if (flap[i]) { g.fillStyle = "#ffb84d"; g.shadowColor = "#ffb84d"; g.shadowBlur = 8; g.fillRect(x, ly - 2, bw, laneH - 2); g.shadowBlur = 0; }
+    else { g.fillStyle = "rgba(255,184,77,.28)"; g.fillRect(x, ly + 4, bw, laneH - 8); }
+  });
+}
+
+function drawVTrace() {
+  const [g, w, h] = prep($("#vtrace"));
+  const s = meta.settings, N = 300 * s.steps_per_frame;   // same 10 s window as the loom chart
+  const top = 8, plotH = h - top - 6, lo = -0.05, hi = 1.3;
+  const y = (v) => top + plotH * (1 - (clamp(v, lo, hi) - lo) / (hi - lo));
+  const xs = (i, len) => w - (len - 1 - i) * (w / (N - 1));
+
+  const guides = [
+    [0, "rgba(255,255,255,.08)", "", []],
+    [s.v_rest, "rgba(200,208,230,.5)", `rest ${s.v_rest.toFixed(2)}`, [2, 4]],
+    [s.v_threshold, "rgba(255,107,125,.85)", `threshold ${s.v_threshold.toFixed(1)}`, [4, 4]],
+  ];
+  for (const [v, color, , dash] of guides) {
+    g.setLineDash(dash); g.strokeStyle = color; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke();
+  }
+  g.setLineDash([]);
+  // Labels go on top of the traces, on a dark backing, so spikes never hide them.
+  const labels = () => {
+    g.font = MONO; g.textAlign = "left"; g.textBaseline = "middle";
+    for (const [v, color, text] of guides) {
+      if (!text) continue;
+      const tw = g.measureText(text).width, ly = y(v);
+      g.fillStyle = "rgba(10,14,30,.85)"; roundRect(g, 2, ly - 7, tw + 8, 14, 4); g.fill();
+      g.fillStyle = color; g.fillText(text, 6, ly);
+    }
+    g.textBaseline = "alphabetic";
+  };
+
+  const v = hist.v.slice(-N), spk = hist.spk.slice(-N), len = v.length;
+  if (len < 2) return labels();
+  meta.dn.forEach((d, k) => {
+    const color = d.side === "R" ? "#a78bfa" : "#ffb84d";
+    g.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = xs(i, len);
+      if (i === 0) g.moveTo(x, y(v[i][k]));
+      else if (spk[i][k]) { g.lineTo(x, y(hi)); g.lineTo(x, y(v[i][k])); }   // spike: up past threshold, then reset
+      else g.lineTo(x, y(v[i][k]));
+    }
+    g.strokeStyle = color; g.lineWidth = 1.4; g.lineJoin = "round"; g.stroke();
+  });
+  labels();
+}
+
+function drawActivity() {
+  const [g, w, h] = prep($("#activity"));
+  const N = HIST, pad = 6, ph = h - pad * 2 - 12;
+  const data = hist.fire;
+  if (data.length < 2) return;
+  const ymax = Math.max(0.12, Math.max(...data) * 1.3);
+  const xs = (i) => w - (data.length - 1 - i) * (w / (N - 1));
+  const y = (v) => pad + ph * (1 - v / ymax);
+
+  g.strokeStyle = "rgba(255,255,255,.06)"; g.lineWidth = 1; g.font = MONO; g.fillStyle = "rgba(136,146,171,.6)"; g.textAlign = "right";
+  for (const f of [0, .5, 1]) { const v = ymax * f; g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke(); if (f) g.fillText(`${(v * 100).toFixed(0)}%`, w - 2, f === 1 ? y(v) + 11 : y(v) - 3); }
+
+  const grad = g.createLinearGradient(0, pad, 0, pad + ph);
+  grad.addColorStop(0, "rgba(167,139,250,.5)"); grad.addColorStop(1, "rgba(92,242,255,0)");
+  g.beginPath(); g.moveTo(xs(0), y(0));
+  data.forEach((v, i) => g.lineTo(xs(i), y(v)));
+  g.lineTo(xs(data.length - 1), y(0)); g.closePath(); g.fillStyle = grad; g.fill();
+
+  const line = g.createLinearGradient(0, 0, w, 0);
+  line.addColorStop(0, "#a78bfa"); line.addColorStop(1, "#5cf2ff");
+  g.beginPath(); data.forEach((v, i) => (i ? g.lineTo(xs(i), y(v)) : g.moveTo(xs(i), y(v))));
+  g.strokeStyle = line; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+
+  hist.flap.forEach((f, i) => { if (f) { g.fillStyle = "#ffb84d"; g.fillRect(xs(i) - 1, h - 11, 2, 8); } });
+}
+
+/* ------------------------------------------------------------------ game view */
+
+// Drawn with the original sprites from flappy_bird_gymnasium, in the same order and at
+// the same positions as its pygame renderer (_draw_surface).
+const game = $("#game"), gctx = game.getContext("2d");
+let gs = 1, gx = 0;
+const PIPE_H = 320, ROT_THR = 20;
+const BIRD = ["yellowbird-upflap", "yellowbird-midflap", "yellowbird-downflap"];
+const SPR = {};
+
+function loadSprites() {
+  const names = ["background-day", "base", "pipe-green", ...BIRD, ..."0123456789"];
+  return Promise.all(names.map((n) => new Promise((done) => {
+    const img = new Image();
+    img.onload = () => { SPR[n] = img; done(); };
+    img.onerror = done;   // a missing sprite is skipped, not fatal
+    img.src = `/sprites/${n}.png`;
+  })));
+}
+
+function sizeGame() {
+  const r = game.getBoundingClientRect();
+  game.width = Math.round(r.width * dpr); game.height = Math.round(r.height * dpr);
+  // The panel is not always exactly 288:512, so cover it (like object-fit: cover) and centre.
+  gs = Math.max(game.width / 288, game.height / 512);
+  gx = (game.width - 288 * gs) / 2;
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+
+const blit = (g, name, x, y) => { if (SPR[name]) g.drawImage(SPR[name], x, y); };
+
+function drawGame() {
+  const g = gctx;
+  g.setTransform(gs, 0, 0, gs, gx, 0);
+  g.imageSmoothingEnabled = gs < 1;   // crisp pixels when enlarged, smooth when shrunk
+  g.fillStyle = "#4ec0ca"; g.fillRect(0, 0, 288, 512);
+  blit(g, "background-day", 0, 0);
+
+  const m = latest, r = m && m.render;
+  if (!r) return;
+
+  const pipe = SPR["pipe-green"];
+  if (pipe) {
+    r.upper.forEach(([x, y]) => { g.save(); g.translate(x, y + PIPE_H); g.scale(1, -1); g.drawImage(pipe, 0, 0); g.restore(); });
+    r.lower.forEach(([x, y]) => g.drawImage(pipe, x, y));
+  }
+
+  // Where the brain starts to feel the loom (not part of the original game).
+  const line = m.gap[1] - meta.settings.flap_margin;
+  g.setLineDash([4, 4]); g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, line); g.lineTo(288, line); g.stroke(); g.setLineDash([]);
+
+  blit(g, "base", r.base[0], r.base[1]);
+
+  const digits = String(m.score).split("");
+  let x = (288 - digits.reduce((w, d) => w + (SPR[d] ? SPR[d].width : 0), 0)) / 2;
+  for (const d of digits) { blit(g, d, x, 512 * 0.1); x += SPR[d] ? SPR[d].width : 0; }
+
+  // pygame rotates counter-clockwise and pins the rotated box's top-left to the player position.
+  const [px, py, rot, idx] = r.player;
+  const bird = SPR[BIRD[idx]];
+  if (bird) {
+    const a = Math.min(rot, ROT_THR) * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+    const bw = bird.width * c + bird.height * s, bh = bird.width * s + bird.height * c;
+    g.save(); g.translate(px + bw / 2, py + bh / 2); g.rotate(-a);
+    g.drawImage(bird, -bird.width / 2, -bird.height / 2);
+    g.restore();
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
